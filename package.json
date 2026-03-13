@@ -10,7 +10,7 @@
     "generate:vapid": "node scripts/generate-vapid.js"
   },
   "dependencies": {
-    "playwright": "^1.54.2",
+    "playwright": "1.58.2",
     "web-push": "^3.6.7"
   }
 }
