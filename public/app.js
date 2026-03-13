@@ -1,11 +1,15 @@
 import {
   ApiError,
+  ensureWorkspaceKey,
   formatDate,
   formatInterval,
+  generateWorkspaceKey,
   getAccessCode,
+  getWorkspaceKey,
   loadConfig,
   request,
   setAccessCode,
+  setWorkspaceKey,
   urlBase64ToUint8Array,
 } from "/common.js";
 
@@ -15,12 +19,14 @@ const unsubscribeButton = document.querySelector("#unsubscribe-button");
 const testPushButton = document.querySelector("#test-push-button");
 const refreshButton = document.querySelector("#refresh-button");
 const watchForm = document.querySelector("#watch-form");
-const settingsForm = document.querySelector("#settings-form");
+const workspaceForm = document.querySelector("#workspace-form");
+const workspaceKeyField = document.querySelector("#workspace-key");
+const newWorkspaceButton = document.querySelector("#new-workspace-button");
+const copyWorkspaceButton = document.querySelector("#copy-workspace-button");
 const watchList = document.querySelector("#watch-list");
 const watchCount = document.querySelector("#watch-count");
 const serverTime = document.querySelector("#server-time");
 const pushStatus = document.querySelector("#push-status");
-const publicUrlField = document.querySelector("#public-url");
 const summaryStatus = document.querySelector("#summary-status");
 const template = document.querySelector("#watch-card-template");
 
@@ -89,14 +95,14 @@ async function updatePushControls() {
 
   const subscription = await getPushSubscription();
   if (subscription) {
-    pushStatus.textContent = "앱 푸시가 연결되어 있습니다.";
+    pushStatus.textContent = "이 워크스페이스에 현재 기기가 연결되어 있습니다.";
     pushButton.disabled = true;
     unsubscribeButton.disabled = false;
     testPushButton.disabled = false;
     return;
   }
 
-  pushStatus.textContent = "아직 이 기기에서 푸시를 연결하지 않았습니다.";
+  pushStatus.textContent = "아직 이 워크스페이스에 푸시가 연결되지 않았습니다.";
   pushButton.disabled = false;
   unsubscribeButton.disabled = true;
   testPushButton.disabled = true;
@@ -130,8 +136,8 @@ function renderWatches(data) {
   if (!data.watches.length) {
     watchList.innerHTML = `
       <article class="empty-card">
-        <h2>감시 중인 공고가 없습니다.</h2>
-        <p>공고번호와 차수를 입력하면 서버가 주기적으로 결과를 확인합니다.</p>
+        <h2>내 워크스페이스에 등록된 공고가 없습니다.</h2>
+        <p>같은 개인 워크스페이스 코드를 PC와 휴대폰에 넣으면 이 목록만 서로 동기화됩니다.</p>
       </article>
     `;
     return;
@@ -191,18 +197,18 @@ async function renderState() {
     const data = await request("/api/state");
     setLocked(false);
 
-    watchCount.textContent = `${data.watches.length}건`;
+    workspaceKeyField.value = getWorkspaceKey();
+    watchCount.textContent = `${data.workspace.watchCount}건`;
     serverTime.textContent = formatDate(data.serverTime);
     summaryStatus.textContent = data.push.subscriptionCount
       ? `푸시 연결 ${data.push.subscriptionCount}기기`
       : "푸시 연결 대기";
-    publicUrlField.value = data.settings.publicBaseUrl || "";
 
     renderWatches(data);
     await updatePushControls();
   } catch (error) {
     if (error instanceof ApiError && error.status === 401) {
-      setLocked(true, "보안코드를 입력하면 감시 목록과 결과를 볼 수 있습니다.");
+      setLocked(true, "보안코드를 입력하면 앱이 열립니다.");
       return;
     }
 
@@ -263,6 +269,7 @@ async function disablePush() {
 }
 
 async function boot() {
+  ensureWorkspaceKey();
   config = await loadConfig();
   updateInstallButton();
 
@@ -272,6 +279,7 @@ async function boot() {
     setLocked(false);
   }
 
+  workspaceKeyField.value = getWorkspaceKey();
   await ensureServiceWorker();
   await renderState();
 
@@ -344,18 +352,35 @@ watchForm.addEventListener("submit", async (event) => {
   }
 });
 
-settingsForm.addEventListener("submit", async (event) => {
+workspaceForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const formData = new FormData(settingsForm);
+  const code = new FormData(workspaceForm).get("workspaceKey");
+  const normalized = setWorkspaceKey(code);
+  if (!normalized) {
+    window.alert("유효한 워크스페이스 코드를 입력하세요.");
+    return;
+  }
+
+  await renderState();
+});
+
+newWorkspaceButton.addEventListener("click", async () => {
+  const nextKey = setWorkspaceKey(generateWorkspaceKey());
+  workspaceKeyField.value = nextKey;
+  await renderState();
+});
+
+copyWorkspaceButton.addEventListener("click", async () => {
+  const value = getWorkspaceKey();
+  if (!value) {
+    return;
+  }
 
   try {
-    await request("/api/settings", {
-      method: "PATCH",
-      body: JSON.stringify(Object.fromEntries(formData.entries())),
-    });
-    await renderState();
+    await navigator.clipboard.writeText(value);
+    window.alert("워크스페이스 코드를 복사했습니다.");
   } catch (error) {
-    window.alert(error.message);
+    window.alert("클립보드 복사에 실패했습니다.");
   }
 });
 

@@ -1,4 +1,5 @@
 export const ACCESS_CODE_KEY = "narajangteo.accessCode";
+export const WORKSPACE_KEY = "narajangteo.workspaceKey";
 
 export class ApiError extends Error {
   constructor(message, status = 0, data = null) {
@@ -23,6 +24,45 @@ export function setAccessCode(value) {
   window.localStorage.setItem(ACCESS_CODE_KEY, trimmed);
 }
 
+export function normalizeWorkspaceKey(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-_]/g, "");
+}
+
+export function generateWorkspaceKey() {
+  const base = (window.crypto?.randomUUID?.() || `${Date.now()}${Math.random()}`)
+    .replace(/-/g, "")
+    .slice(0, 16)
+    .toLowerCase();
+  return `ws-${base}`;
+}
+
+export function getWorkspaceKey() {
+  return normalizeWorkspaceKey(window.localStorage.getItem(WORKSPACE_KEY) || "");
+}
+
+export function setWorkspaceKey(value) {
+  const normalized = normalizeWorkspaceKey(value);
+  if (!normalized) {
+    window.localStorage.removeItem(WORKSPACE_KEY);
+    return "";
+  }
+
+  window.localStorage.setItem(WORKSPACE_KEY, normalized);
+  return normalized;
+}
+
+export function ensureWorkspaceKey() {
+  const current = getWorkspaceKey();
+  if (current) {
+    return current;
+  }
+
+  return setWorkspaceKey(generateWorkspaceKey());
+}
+
 export async function loadConfig() {
   const response = await fetch("/api/config", {
     headers: {
@@ -41,6 +81,7 @@ export async function loadConfig() {
 export async function request(url, options = {}) {
   const headers = new Headers(options.headers || {});
   const accessCode = getAccessCode();
+  const workspaceKey = getWorkspaceKey();
 
   if (options.body && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
@@ -48,6 +89,10 @@ export async function request(url, options = {}) {
 
   if (accessCode) {
     headers.set("Authorization", `Bearer ${accessCode}`);
+  }
+
+  if (workspaceKey) {
+    headers.set("X-Workspace-Key", workspaceKey);
   }
 
   const response = await fetch(url, {

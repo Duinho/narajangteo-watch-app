@@ -28,19 +28,17 @@ const mimeTypes = {
   ".html": "text/html; charset=utf-8",
   ".js": "application/javascript; charset=utf-8",
   ".json": "application/json; charset=utf-8",
-  ".png": "image/png",
   ".svg": "image/svg+xml",
   ".webmanifest": "application/manifest+json; charset=utf-8",
 };
 
 const defaultState = {
-  version: 2,
+  version: 5,
   settings: {
     notificationMode: "webpush",
     publicBaseUrl: DEFAULT_PUBLIC_BASE_URL,
   },
-  pushSubscriptions: [],
-  watches: [],
+  workspaces: {},
 };
 
 let state = structuredClone(defaultState);
@@ -53,6 +51,10 @@ let vapidConfig = {
 
 function trimTrailingSlash(value) {
   return String(value || "").trim().replace(/\/+$/, "");
+}
+
+function isoNow() {
+  return new Date().toISOString();
 }
 
 function getLanIp() {
@@ -84,10 +86,6 @@ function getPublicBaseUrl() {
   return trimTrailingSlash(state.settings.publicBaseUrl || DEFAULT_PUBLIC_BASE_URL || LAN_OPEN_URL);
 }
 
-function isoNow() {
-  return new Date().toISOString();
-}
-
 function normalizeNotice(value) {
   return String(value || "")
     .trim()
@@ -108,8 +106,15 @@ function normalizeInterval(value) {
   return Number.isFinite(parsed) ? Math.max(30, parsed) : 300;
 }
 
-function buildResultFilePath(notice, order) {
-  return path.join(RESULTS_DIR, `narajangteo_${notice}-${order}_latest.json`);
+function normalizeWorkspaceKey(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-_]/g, "");
+}
+
+function buildResultFilePath(workspaceKey, notice, order) {
+  return path.join(RESULTS_DIR, `${workspaceKey}__narajangteo_${notice}-${order}_latest.json`);
 }
 
 function buildOfficialNoticeUrl(notice, order) {
@@ -155,56 +160,27 @@ function getNotificationCompany(payload) {
   return payload?.detail?.selectedCompany || payload?.detail?.topBidder || null;
 }
 
-function buildPushNotification(watch, payload) {
-  const company = getNotificationCompany(payload);
-  const companyName = company?.displayName || company?.companyName || "업체 확인 필요";
-  const resultStatus = payload?.searchRow?.status || payload?.state || "결과 공개";
-  const amount = company?.bidAmount ? ` / ${company.bidAmount}` : "";
-  const rate = company?.bidRate ? ` / ${company.bidRate}` : "";
+function sanitizeSubscription(record) {
+  if (!record?.endpoint || !record?.keys?.p256dh || !record?.keys?.auth) {
+    return null;
+  }
 
   return {
-    title: `나라장터 ${resultStatus}`,
-    body: `${companyName}${amount}${rate}\n${watch.label} (${watch.notice}-${watch.order})`,
-    tag: `narajangteo-${watch.notice}-${watch.order}`,
-    url: buildAppResultUrl(watch.notice, watch.order),
-    icon: "/favicon.svg",
-    badge: "/favicon.svg",
-    notice: watch.notice,
-    order: watch.order,
-    watchId: watch.id,
-    checkedAt: payload?.checkedAt || isoNow(),
+    id: record.id || randomUUID(),
+    endpoint: record.endpoint,
+    keys: record.keys,
+    expirationTime: record.expirationTime || null,
+    createdAt: record.createdAt || isoNow(),
+    updatedAt: record.updatedAt || isoNow(),
+    userAgent: String(record.userAgent || "").trim(),
   };
 }
 
-function buildTestPushNotification() {
-  return {
-    title: "나라장터 알림 테스트",
-    body: "이 알림이 보이면 앱 푸시 연결은 정상입니다.",
-    tag: "narajangteo-test",
-    url: `${getPublicBaseUrl()}/`,
-    icon: "/favicon.svg",
-    badge: "/favicon.svg",
-    checkedAt: isoNow(),
-  };
-}
-
-function createSubscriptionRecord(subscription, userAgent = "") {
-  return {
-    id: randomUUID(),
-    endpoint: subscription.endpoint,
-    keys: subscription.keys || {},
-    expirationTime: subscription.expirationTime || null,
-    createdAt: isoNow(),
-    updatedAt: isoNow(),
-    userAgent: String(userAgent || "").trim(),
-  };
-}
-
-function sanitizeWatch(watch) {
+function sanitizeWatch(workspaceKey, watch) {
   const notice = normalizeNotice(watch.notice);
   const order = normalizeOrder(watch.order || "000");
   const createdAt = watch.createdAt || isoNow();
-  const resultJsonPath = watch.resultJsonPath || buildResultFilePath(notice, order);
+  const resultJsonPath = watch.resultJsonPath || buildResultFilePath(workspaceKey, notice, order);
 
   return {
     id: watch.id || randomUUID(),
@@ -228,13 +204,24 @@ function sanitizeWatch(watch) {
     lastStderr: watch.lastStderr || "",
     lastNotificationFingerprint: watch.lastNotificationFingerprint || "",
     lastNotificationAt: watch.lastNotificationAt || null,
-    ntfyTopic: String(watch.ntfyTopic || "").trim(),
-    ntfyServer: String(watch.ntfyServer || "").trim(),
   };
 }
 
-function sortWatches() {
-  state.watches.sort((a, b) => {
+function sanitizeWorkspace(workspaceKey, workspace) {
+  const key = normalizeWorkspaceKey(workspaceKey);
+  return {
+    key,
+    createdAt: workspace?.createdAt || isoNow(),
+    updatedAt: workspace?.updatedAt || isoNow(),
+    watches: Array.isArray(workspace?.watches) ? workspace.watches.map((watch) => sanitizeWatch(key, watch)) : [],
+    pushSubscriptions: Array.isArray(workspace?.pushSubscriptions)
+      ? workspace.pushSubscriptions.map(sanitizeSubscription).filter(Boolean)
+      : [],
+  };
+}
+
+function sortWatches(workspace) {
+  workspace.watches.sort((a, b) => {
     if (a.enabled !== b.enabled) {
       return a.enabled ? -1 : 1;
     }
@@ -249,8 +236,7 @@ async function ensureDir(dirPath) {
 
 async function readJsonIfExists(filePath) {
   try {
-    const raw = await fs.readFile(filePath, "utf8");
-    return JSON.parse(raw);
+    return JSON.parse(await fs.readFile(filePath, "utf8"));
   } catch (error) {
     if (error.code === "ENOENT") {
       return null;
@@ -260,20 +246,70 @@ async function readJsonIfExists(filePath) {
   }
 }
 
+function createWorkspace(workspaceKey) {
+  const normalized = normalizeWorkspaceKey(workspaceKey);
+  if (!normalized) {
+    return null;
+  }
+
+  const workspace = sanitizeWorkspace(normalized, {});
+  state.workspaces[normalized] = workspace;
+  return workspace;
+}
+
+function getWorkspace(workspaceKey) {
+  return state.workspaces[normalizeWorkspaceKey(workspaceKey)] || null;
+}
+
+function getOrCreateWorkspace(workspaceKey) {
+  return getWorkspace(workspaceKey) || createWorkspace(workspaceKey);
+}
+
+function getWorkspaceKeyFromRequest(req) {
+  return normalizeWorkspaceKey(req.headers["x-workspace-key"] || "");
+}
+
+function buildWorkspaceSummary(workspace) {
+  return {
+    key: workspace.key,
+    watchCount: workspace.watches.length,
+    subscriptionCount: workspace.pushSubscriptions.length,
+  };
+}
+
 async function loadState() {
   await ensureDir(APP_DATA_DIR);
 
   try {
     const parsed = JSON.parse(await fs.readFile(STATE_FILE, "utf8"));
     state = {
-      version: 2,
+      version: 5,
       settings: {
         ...defaultState.settings,
         ...(parsed.settings || {}),
       },
-      pushSubscriptions: Array.isArray(parsed.pushSubscriptions) ? parsed.pushSubscriptions : [],
-      watches: Array.isArray(parsed.watches) ? parsed.watches.map(sanitizeWatch).filter((watch) => watch.notice) : [],
+      workspaces: {},
     };
+
+    if (parsed.workspaces && typeof parsed.workspaces === "object") {
+      for (const [workspaceKey, workspace] of Object.entries(parsed.workspaces)) {
+        const normalized = normalizeWorkspaceKey(workspaceKey);
+        if (!normalized) {
+          continue;
+        }
+
+        state.workspaces[normalized] = sanitizeWorkspace(normalized, workspace);
+        sortWatches(state.workspaces[normalized]);
+      }
+    } else if (Array.isArray(parsed.watches) || Array.isArray(parsed.pushSubscriptions)) {
+      // Legacy shared state is preserved internally but no longer used by default clients.
+      const legacyKey = `legacy-${randomUUID().replace(/-/g, "").slice(0, 12)}`;
+      state.workspaces[legacyKey] = sanitizeWorkspace(legacyKey, {
+        watches: parsed.watches || [],
+        pushSubscriptions: parsed.pushSubscriptions || [],
+      });
+      sortWatches(state.workspaces[legacyKey]);
+    }
   } catch (error) {
     if (error.code !== "ENOENT") {
       throw error;
@@ -369,13 +405,26 @@ function isAuthorized(req) {
   return getAccessCodeFromRequest(req) === ACCESS_CODE;
 }
 
-function getWatchById(id) {
-  return state.watches.find((watch) => watch.id === id) || null;
+function requireWorkspace(req, res) {
+  const workspaceKey = getWorkspaceKeyFromRequest(req);
+  if (!workspaceKey) {
+    sendJson(res, 400, {
+      error: "workspace key is required",
+    });
+    return null;
+  }
+
+  const workspace = getOrCreateWorkspace(workspaceKey);
+  return { workspaceKey, workspace };
 }
 
-function getWatchByNoticeOrder(notice, order) {
+function getWatchById(workspace, watchId) {
+  return workspace.watches.find((watch) => watch.id === watchId) || null;
+}
+
+function getWatchByNoticeOrder(workspace, notice, order) {
   return (
-    state.watches.find((watch) => watch.notice === normalizeNotice(notice) && watch.order === normalizeOrder(order)) ||
+    workspace.watches.find((watch) => watch.notice === normalizeNotice(notice) && watch.order === normalizeOrder(order)) ||
     null
   );
 }
@@ -403,7 +452,6 @@ function publicConfig() {
       enabled: hasWebPush(),
       publicKey: vapidConfig.publicKey || "",
       subject: vapidConfig.subject || "",
-      subscriptionCount: state.pushSubscriptions.length,
     },
     publicBaseUrl: getPublicBaseUrl(),
     localOpenUrl: LOCAL_OPEN_URL,
@@ -411,7 +459,7 @@ function publicConfig() {
   };
 }
 
-function publicState() {
+function publicState(workspace) {
   return {
     settings: {
       notificationMode: state.settings.notificationMode,
@@ -421,57 +469,99 @@ function publicState() {
       enabled: hasWebPush(),
       publicKey: vapidConfig.publicKey || "",
       subject: vapidConfig.subject || "",
-      subscriptionCount: state.pushSubscriptions.length,
+      subscriptionCount: workspace.pushSubscriptions.length,
     },
-    watches: state.watches,
+    workspace: buildWorkspaceSummary(workspace),
+    watches: workspace.watches,
     serverTime: isoNow(),
   };
 }
 
-function queueWatchRun(watchId, reason = "manual", force = false) {
+function queueWatchRun(workspaceKey, watchId, reason = "manual", force = false) {
   runQueue = runQueue
-    .then(() => runWatch(watchId, reason, force))
+    .then(() => runWatch(workspaceKey, watchId, reason, force))
     .catch((error) => {
-      console.error(`[queue] ${watchId}`, error);
+      console.error(`[queue] ${workspaceKey}/${watchId}`, error);
     });
 
   return runQueue;
 }
 
-async function savePushSubscription(subscription, userAgent) {
+function buildPushNotification(workspace, watch, payload) {
+  const company = getNotificationCompany(payload);
+  const companyName = company?.displayName || company?.companyName || "업체 확인 필요";
+  const resultStatus = payload?.searchRow?.status || payload?.state || "결과 공개";
+  const amount = company?.bidAmount ? ` / ${company.bidAmount}` : "";
+  const rate = company?.bidRate ? ` / ${company.bidRate}` : "";
+
+  return {
+    title: `나라장터 ${resultStatus}`,
+    body: `${companyName}${amount}${rate}\n${watch.label} (${watch.notice}-${watch.order})`,
+    tag: `narajangteo-${workspace.key}-${watch.notice}-${watch.order}`,
+    url: buildAppResultUrl(watch.notice, watch.order),
+    icon: "/favicon.svg",
+    badge: "/favicon.svg",
+    notice: watch.notice,
+    order: watch.order,
+    watchId: watch.id,
+    checkedAt: payload?.checkedAt || isoNow(),
+  };
+}
+
+function buildTestPushNotification(workspaceKey) {
+  return {
+    title: "나라장터 알림 테스트",
+    body: `워크스페이스 ${workspaceKey} 연결이 정상입니다.`,
+    tag: `narajangteo-test-${workspaceKey}`,
+    url: `${getPublicBaseUrl()}/`,
+    icon: "/favicon.svg",
+    badge: "/favicon.svg",
+    checkedAt: isoNow(),
+  };
+}
+
+async function savePushSubscription(workspace, subscription, userAgent) {
   if (!subscription?.endpoint || !subscription?.keys?.p256dh || !subscription?.keys?.auth) {
     throw new Error("valid push subscription is required");
   }
 
-  const existing = state.pushSubscriptions.find((item) => item.endpoint === subscription.endpoint);
+  const existing = workspace.pushSubscriptions.find((item) => item.endpoint === subscription.endpoint);
   if (existing) {
     existing.keys = subscription.keys;
     existing.expirationTime = subscription.expirationTime || null;
     existing.updatedAt = isoNow();
     existing.userAgent = String(userAgent || existing.userAgent || "").trim();
+    workspace.updatedAt = isoNow();
     await saveState();
     return existing;
   }
 
-  const record = createSubscriptionRecord(subscription, userAgent);
-  state.pushSubscriptions.push(record);
+  const record = sanitizeSubscription({
+    endpoint: subscription.endpoint,
+    keys: subscription.keys,
+    expirationTime: subscription.expirationTime || null,
+    userAgent,
+  });
+  workspace.pushSubscriptions.push(record);
+  workspace.updatedAt = isoNow();
   await saveState();
   return record;
 }
 
-async function removePushSubscription(endpoint) {
-  const index = state.pushSubscriptions.findIndex((item) => item.endpoint === endpoint);
+async function removePushSubscription(workspace, endpoint) {
+  const index = workspace.pushSubscriptions.findIndex((item) => item.endpoint === endpoint);
   if (index === -1) {
     return false;
   }
 
-  state.pushSubscriptions.splice(index, 1);
+  workspace.pushSubscriptions.splice(index, 1);
+  workspace.updatedAt = isoNow();
   await saveState();
   return true;
 }
 
-async function broadcastPush(notification) {
-  if (!hasWebPush() || state.pushSubscriptions.length === 0) {
+async function broadcastPush(workspace, notification) {
+  if (!hasWebPush() || workspace.pushSubscriptions.length === 0) {
     return {
       sent: 0,
       failed: 0,
@@ -485,7 +575,7 @@ async function broadcastPush(notification) {
   let failed = 0;
   let removed = 0;
 
-  for (const subscription of [...state.pushSubscriptions]) {
+  for (const subscription of [...workspace.pushSubscriptions]) {
     try {
       await webpush.sendNotification(
         {
@@ -501,7 +591,7 @@ async function broadcastPush(notification) {
       failed += 1;
       const statusCode = Number(error.statusCode || 0);
       if (statusCode === 404 || statusCode === 410) {
-        if (await removePushSubscription(subscription.endpoint)) {
+        if (await removePushSubscription(workspace, subscription.endpoint)) {
           removed += 1;
         }
       }
@@ -516,7 +606,7 @@ async function broadcastPush(notification) {
   };
 }
 
-async function notifyWatchIfNeeded(watch, payload) {
+async function notifyWatchIfNeeded(workspace, watch, payload) {
   if (payload?.state !== "PUBLISHED") {
     return {
       sent: false,
@@ -532,7 +622,7 @@ async function notifyWatchIfNeeded(watch, payload) {
     };
   }
 
-  const pushResult = await broadcastPush(buildPushNotification(watch, payload));
+  const pushResult = await broadcastPush(workspace, buildPushNotification(workspace, watch, payload));
   watch.lastNotificationFingerprint = fingerprint;
   watch.lastNotificationAt = isoNow();
 
@@ -543,9 +633,10 @@ async function notifyWatchIfNeeded(watch, payload) {
   };
 }
 
-async function runWatch(watchId, reason, force) {
-  const watch = getWatchById(watchId);
-  if (!watch || watch.running || (!watch.enabled && !force)) {
+async function runWatch(workspaceKey, watchId, reason, force) {
+  const workspace = getWorkspace(workspaceKey);
+  const watch = workspace ? getWatchById(workspace, watchId) : null;
+  if (!workspace || !watch || watch.running || (!watch.enabled && !force)) {
     return;
   }
 
@@ -553,6 +644,7 @@ async function runWatch(watchId, reason, force) {
   watch.lastRunStartedAt = isoNow();
   watch.lastRunReason = reason;
   watch.lastError = "";
+  workspace.updatedAt = isoNow();
   await saveState();
 
   const args = [
@@ -564,7 +656,7 @@ async function runWatch(watchId, reason, force) {
     "--output-dir",
     RESULTS_DIR,
     "--state-dir",
-    NOTIFY_STATE_DIR,
+    path.join(NOTIFY_STATE_DIR, workspace.key),
     "--app-base-url",
     getPublicBaseUrl(),
   ];
@@ -577,8 +669,11 @@ async function runWatch(watchId, reason, force) {
       maxBuffer: 1024 * 1024,
     });
 
-    const payload = JSON.parse(await fs.readFile(buildResultFilePath(watch.notice, watch.order), "utf8"));
-    const notification = await notifyWatchIfNeeded(watch, payload);
+    const legacyPath = path.join(RESULTS_DIR, `narajangteo_${watch.notice}-${watch.order}_latest.json`);
+    const payload = JSON.parse(await fs.readFile(legacyPath, "utf8"));
+    const scopedPath = buildResultFilePath(workspace.key, watch.notice, watch.order);
+    await fs.copyFile(legacyPath, scopedPath);
+    const notification = await notifyWatchIfNeeded(workspace, watch, payload);
 
     watch.lastRunEndedAt = isoNow();
     watch.lastCheckedAt = payload.checkedAt || watch.lastRunEndedAt;
@@ -586,9 +681,10 @@ async function runWatch(watchId, reason, force) {
     watch.lastStdout = stdout.trim();
     watch.lastStderr = stderr.trim();
     watch.lastError = "";
-    watch.resultJsonPath = buildResultFilePath(watch.notice, watch.order);
+    watch.resultJsonPath = scopedPath;
     watch.nextRunAt = new Date(Date.now() + watch.intervalSeconds * 1000).toISOString();
     watch.updatedAt = isoNow();
+    workspace.updatedAt = isoNow();
 
     if (notification?.reason === "no-device-subscribed") {
       watch.lastStdout = `${watch.lastStdout}\nnotification: no-device-subscribed`.trim();
@@ -598,6 +694,7 @@ async function runWatch(watchId, reason, force) {
     watch.lastError = error.stderr || error.stdout || error.message || "unknown error";
     watch.nextRunAt = new Date(Date.now() + watch.intervalSeconds * 1000).toISOString();
     watch.updatedAt = isoNow();
+    workspace.updatedAt = isoNow();
   } finally {
     watch.running = false;
     await saveState();
@@ -606,14 +703,17 @@ async function runWatch(watchId, reason, force) {
 
 async function tick() {
   const now = Date.now();
-  for (const watch of state.watches) {
-    if (!watch.enabled || watch.running) {
-      continue;
-    }
 
-    const nextRunAt = watch.nextRunAt ? Date.parse(watch.nextRunAt) : 0;
-    if (!nextRunAt || Number.isNaN(nextRunAt) || nextRunAt <= now) {
-      queueWatchRun(watch.id, "schedule", false);
+  for (const workspace of Object.values(state.workspaces)) {
+    for (const watch of workspace.watches) {
+      if (!watch.enabled || watch.running) {
+        continue;
+      }
+
+      const nextRunAt = watch.nextRunAt ? Date.parse(watch.nextRunAt) : 0;
+      if (!nextRunAt || Number.isNaN(nextRunAt) || nextRunAt <= now) {
+        queueWatchRun(workspace.key, watch.id, "schedule", false);
+      }
     }
   }
 }
@@ -640,15 +740,22 @@ async function handleApi(req, res, url) {
     return true;
   }
 
+  const workspaceInfo = requireWorkspace(req, res);
+  if (!workspaceInfo) {
+    return true;
+  }
+
+  const { workspaceKey, workspace } = workspaceInfo;
+
   if (req.method === "GET" && url.pathname === "/api/state") {
-    sendJson(res, 200, publicState());
+    sendJson(res, 200, publicState(workspace));
     return true;
   }
 
   if (req.method === "GET" && url.pathname === "/api/result") {
     const notice = normalizeNotice(url.searchParams.get("notice") || "");
     const order = normalizeOrder(url.searchParams.get("order") || "000");
-    const watch = getWatchByNoticeOrder(notice, order);
+    const watch = getWatchByNoticeOrder(workspace, notice, order);
 
     if (!watch) {
       sendJson(res, 404, { error: "watch not found" });
@@ -657,6 +764,7 @@ async function handleApi(req, res, url) {
 
     const payload = await readResultPayloadForWatch(watch);
     sendJson(res, 200, {
+      workspace: buildWorkspaceSummary(workspace),
       watch,
       payload,
       officialUrl: buildOfficialNoticeUrl(watch.notice, watch.order),
@@ -666,30 +774,41 @@ async function handleApi(req, res, url) {
 
   if (req.method === "POST" && url.pathname === "/api/push/subscribe") {
     const body = await readJsonBody(req);
-    const subscription = await savePushSubscription(body.subscription, req.headers["user-agent"] || body.userAgent || "");
+    const subscription = await savePushSubscription(workspace, body.subscription, req.headers["user-agent"] || "");
     sendJson(res, 201, {
       subscriptionId: subscription.id,
-      subscriptionCount: state.pushSubscriptions.length,
+      subscriptionCount: workspace.pushSubscriptions.length,
     });
     return true;
   }
 
   if (req.method === "POST" && url.pathname === "/api/push/unsubscribe") {
     const body = await readJsonBody(req);
-    const removed = await removePushSubscription(body.endpoint);
+    const removed = await removePushSubscription(workspace, body.endpoint);
     sendJson(res, 200, {
       removed,
-      subscriptionCount: state.pushSubscriptions.length,
+      subscriptionCount: workspace.pushSubscriptions.length,
     });
     return true;
   }
 
   if (req.method === "POST" && url.pathname === "/api/push/test") {
-    const result = await broadcastPush(buildTestPushNotification());
+    const result = await broadcastPush(workspace, buildTestPushNotification(workspaceKey));
     sendJson(res, 200, {
       ok: true,
       result,
     });
+    return true;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/settings") {
+    const body = await readJsonBody(req);
+    if (Object.prototype.hasOwnProperty.call(body, "publicBaseUrl")) {
+      state.settings.publicBaseUrl = trimTrailingSlash(body.publicBaseUrl);
+    }
+    state.settings.notificationMode = "webpush";
+    await saveState();
+    sendJson(res, 200, { settings: state.settings });
     return true;
   }
 
@@ -703,12 +822,12 @@ async function handleApi(req, res, url) {
       return true;
     }
 
-    if (getWatchByNoticeOrder(notice, order)) {
+    if (getWatchByNoticeOrder(workspace, notice, order)) {
       sendJson(res, 409, { error: "watch already exists" });
       return true;
     }
 
-    const watch = sanitizeWatch({
+    const watch = sanitizeWatch(workspace.key, {
       id: randomUUID(),
       label: body.label,
       notice,
@@ -720,22 +839,12 @@ async function handleApi(req, res, url) {
       nextRunAt: new Date().toISOString(),
     });
 
-    state.watches.push(watch);
-    sortWatches();
+    workspace.watches.push(watch);
+    sortWatches(workspace);
+    workspace.updatedAt = isoNow();
     await saveState();
-    queueWatchRun(watch.id, "create", true);
+    queueWatchRun(workspace.key, watch.id, "create", true);
     sendJson(res, 201, { watch });
-    return true;
-  }
-
-  if (req.method === "PATCH" && url.pathname === "/api/settings") {
-    const body = await readJsonBody(req);
-    if (Object.prototype.hasOwnProperty.call(body, "publicBaseUrl")) {
-      state.settings.publicBaseUrl = trimTrailingSlash(body.publicBaseUrl);
-    }
-    state.settings.notificationMode = "webpush";
-    await saveState();
-    sendJson(res, 200, { settings: state.settings });
     return true;
   }
 
@@ -743,7 +852,7 @@ async function handleApi(req, res, url) {
   const runMatch = url.pathname.match(/^\/api\/watches\/([^/]+)\/run$/);
 
   if (req.method === "POST" && runMatch) {
-    const watch = getWatchById(runMatch[1]);
+    const watch = getWatchById(workspace, runMatch[1]);
     if (!watch) {
       sendJson(res, 404, { error: "watch not found" });
       return true;
@@ -751,14 +860,15 @@ async function handleApi(req, res, url) {
 
     watch.nextRunAt = new Date().toISOString();
     watch.updatedAt = isoNow();
+    workspace.updatedAt = isoNow();
     await saveState();
-    queueWatchRun(watch.id, "manual", true);
+    queueWatchRun(workspace.key, watch.id, "manual", true);
     sendJson(res, 202, { queued: true });
     return true;
   }
 
   if (req.method === "PATCH" && watchMatch) {
-    const watch = getWatchById(watchMatch[1]);
+    const watch = getWatchById(workspace, watchMatch[1]);
     if (!watch) {
       sendJson(res, 404, { error: "watch not found" });
       return true;
@@ -779,6 +889,7 @@ async function handleApi(req, res, url) {
     }
 
     watch.updatedAt = isoNow();
+    workspace.updatedAt = isoNow();
     if (watch.enabled) {
       watch.nextRunAt = new Date().toISOString();
     }
@@ -789,13 +900,14 @@ async function handleApi(req, res, url) {
   }
 
   if (req.method === "DELETE" && watchMatch) {
-    const index = state.watches.findIndex((watch) => watch.id === watchMatch[1]);
+    const index = workspace.watches.findIndex((watch) => watch.id === watchMatch[1]);
     if (index === -1) {
       sendJson(res, 404, { error: "watch not found" });
       return true;
     }
 
-    state.watches.splice(index, 1);
+    workspace.watches.splice(index, 1);
+    workspace.updatedAt = isoNow();
     await saveState();
     sendJson(res, 204, {});
     return true;
@@ -820,7 +932,7 @@ async function serveStatic(req, res, url) {
     const ext = path.extname(filePath).toLowerCase();
     res.writeHead(200, {
       "Content-Type": mimeTypes[ext] || "application/octet-stream",
-      "Cache-Control": ext === ".png" || ext === ".svg" ? "public, max-age=86400" : "no-store",
+      "Cache-Control": ext === ".svg" ? "public, max-age=86400" : "no-store",
     });
     res.end(data);
   } catch (error) {
