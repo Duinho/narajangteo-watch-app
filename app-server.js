@@ -224,7 +224,6 @@ function sanitizeWatch(watch) {
     lastResult: watch.lastResult || null,
     lastError: watch.lastError || "",
     resultJsonPath,
-    resultScreenshotPath: watch.resultScreenshotPath || resultJsonPath.replace(/\.json$/i, ".png"),
     lastStdout: watch.lastStdout || "",
     lastStderr: watch.lastStderr || "",
     lastNotificationFingerprint: watch.lastNotificationFingerprint || "",
@@ -588,7 +587,6 @@ async function runWatch(watchId, reason, force) {
     watch.lastStderr = stderr.trim();
     watch.lastError = "";
     watch.resultJsonPath = buildResultFilePath(watch.notice, watch.order);
-    watch.resultScreenshotPath = watch.resultJsonPath.replace(/\.json$/i, ".png");
     watch.nextRunAt = new Date(Date.now() + watch.intervalSeconds * 1000).toISOString();
     watch.updatedAt = isoNow();
 
@@ -662,39 +660,7 @@ async function handleApi(req, res, url) {
       watch,
       payload,
       officialUrl: buildOfficialNoticeUrl(watch.notice, watch.order),
-      screenshotUrl: watch.resultScreenshotPath ? `/api/result-image?notice=${watch.notice}&order=${watch.order}` : null,
     });
-    return true;
-  }
-
-  if (req.method === "GET" && url.pathname === "/api/result-image") {
-    const notice = normalizeNotice(url.searchParams.get("notice") || "");
-    const order = normalizeOrder(url.searchParams.get("order") || "000");
-    const watch = getWatchByNoticeOrder(notice, order);
-
-    if (!watch?.resultScreenshotPath) {
-      res.writeHead(404);
-      res.end("Not found");
-      return true;
-    }
-
-    try {
-      const data = await fs.readFile(watch.resultScreenshotPath);
-      res.writeHead(200, {
-        "Content-Type": "image/png",
-        "Cache-Control": "no-store",
-      });
-      res.end(data);
-    } catch (error) {
-      if (error.code === "ENOENT") {
-        res.writeHead(404);
-        res.end("Not found");
-        return true;
-      }
-
-      throw error;
-    }
-
     return true;
   }
 

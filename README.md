@@ -115,7 +115,7 @@ docker run ^
 
 - 감시 목록/구독 상태: `app-data/dashboard-state.json`
 - Web Push 키 로컬 저장본: `app-data/webpush-vapid.json`
-- 조회 결과 JSON/TXT/PNG: `output/results/`
+- 조회 결과 JSON/TXT: `output/results/`
 
 ## 7. 현재 한계
 

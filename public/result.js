@@ -12,7 +12,6 @@ const resultMeta = document.querySelector("#result-meta");
 const summary = document.querySelector("#result-summary");
 const announcementGrid = document.querySelector("#announcement-grid");
 const bidderTableBody = document.querySelector("#bidder-table tbody");
-const resultImage = document.querySelector("#result-image");
 const reloadButton = document.querySelector("#reload-button");
 
 function setLocked(locked, message = "") {
@@ -129,7 +128,7 @@ async function boot() {
     const data = await loadResult();
     setLocked(false);
 
-    const { watch, payload, officialUrl, screenshotUrl } = data;
+    const { watch, payload, officialUrl } = data;
     resultTitle.textContent = `${watch.label} (${watch.notice}-${watch.order})`;
     resultSubtitle.textContent = payload?.searchRow?.title || "최근 저장된 개찰 결과를 표시합니다.";
     officialLink.href = officialUrl;
@@ -151,13 +150,6 @@ async function boot() {
     renderSummary(payload);
     renderAnnouncement(payload?.detail?.announcement || {});
     renderBidders(payload?.detail?.bidders || []);
-
-    if (screenshotUrl) {
-      resultImage.src = `${screenshotUrl}&_=${Date.now()}`;
-      resultImage.hidden = false;
-    } else {
-      resultImage.hidden = true;
-    }
   } catch (error) {
     if (error instanceof ApiError && error.status === 401) {
       setLocked(true, "보안코드를 입력하면 결과 상세를 볼 수 있습니다.");
@@ -169,7 +161,6 @@ async function boot() {
     summary.innerHTML = `<p class="summary-main">${error.message}</p>`;
     announcementGrid.innerHTML = "";
     bidderTableBody.innerHTML = "";
-    resultImage.hidden = true;
   }
 }
 

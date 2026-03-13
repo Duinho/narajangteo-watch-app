@@ -447,11 +447,10 @@ async function extractDetail(page) {
   };
 }
 
-async function writeOutputs(outputDir, key, payload, screenshotBuffer) {
+async function writeOutputs(outputDir, key, payload) {
   await ensureDir(outputDir);
   const jsonPath = path.join(outputDir, `${key}.json`);
   const textPath = path.join(outputDir, `${key}.txt`);
-  const screenshotPath = path.join(outputDir, `${key}.png`);
 
   const summaryLines = [
     `checkedAt: ${payload.checkedAt}`,
@@ -479,11 +478,8 @@ async function writeOutputs(outputDir, key, payload, screenshotBuffer) {
 
   await fs.writeFile(jsonPath, JSON.stringify(payload, null, 2), "utf8");
   await fs.writeFile(textPath, `${summaryLines.join("\n")}\n`, "utf8");
-  if (screenshotBuffer) {
-    await fs.writeFile(screenshotPath, screenshotBuffer);
-  }
 
-  return { jsonPath, textPath, screenshotPath };
+  return { jsonPath, textPath };
 }
 
 function buildResultUrl(options, notice, order) {
@@ -707,7 +703,6 @@ async function runOnce(browser, options) {
     }).replace(" ", "T");
 
     if (await page.getByText("데이터가 없음").isVisible()) {
-      const screenshot = await page.screenshot({ fullPage: true });
       const payload = {
         checkedAt,
         notice: options.notice,
@@ -719,8 +714,7 @@ async function runOnce(browser, options) {
       const files = await writeOutputs(
         options.outputDir,
         `narajangteo_${options.notice}-${options.order}_latest`,
-        payload,
-        screenshot
+        payload
       );
       const notification = await notifyIfNeeded(options, payload);
 
@@ -730,7 +724,6 @@ async function runOnce(browser, options) {
     const matchingRow = await findMatchingRow(page, options.notice, options.order);
 
     if (!matchingRow) {
-      const screenshot = await page.screenshot({ fullPage: true });
       const payload = {
         checkedAt,
         notice: options.notice,
@@ -742,8 +735,7 @@ async function runOnce(browser, options) {
       const files = await writeOutputs(
         options.outputDir,
         `narajangteo_${options.notice}-${options.order}_latest`,
-        payload,
-        screenshot
+        payload
       );
       const notification = await notifyIfNeeded(options, payload);
 
@@ -752,7 +744,6 @@ async function runOnce(browser, options) {
 
     await openResultDetail(page, matchingRow.rowIndex, options.timeoutMs);
     const detail = await extractDetail(page);
-    const screenshot = await page.screenshot({ fullPage: true });
     const payload = {
       checkedAt,
       notice: options.notice,
@@ -764,8 +755,7 @@ async function runOnce(browser, options) {
     const files = await writeOutputs(
       options.outputDir,
       `narajangteo_${options.notice}-${options.order}_latest`,
-      payload,
-      screenshot
+      payload
     );
     const notification = await notifyIfNeeded(options, payload);
 
@@ -804,7 +794,6 @@ function printSummary(result) {
 
   console.log(`json: ${files.jsonPath}`);
   console.log(`text: ${files.textPath}`);
-  console.log(`screenshot: ${files.screenshotPath}`);
   if (notification) {
     console.log(`notification: ${notification.reason}`);
   }
