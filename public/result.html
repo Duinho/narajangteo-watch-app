@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0f766e" />
+    <title>개찰결과 상세</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="background-grid"></div>
+
+    <section class="lock-panel" id="lock-panel" hidden>
+      <div class="lock-card">
+        <p class="eyebrow">Protected Access</p>
+        <h1>보안코드가 필요합니다.</h1>
+        <p class="hero-copy" id="lock-message"></p>
+        <form id="lock-form" class="stack">
+          <label>
+            <span>보안코드</span>
+            <input name="accessCode" type="password" autocomplete="current-password" required />
+          </label>
+          <button class="primary" type="submit">상세 열기</button>
+        </form>
+      </div>
+    </section>
+
+    <main class="shell" id="result-shell">
+      <section class="hero compact">
+        <p class="eyebrow">Result Detail</p>
+        <h1 id="result-title">개찰결과 상세</h1>
+        <p class="hero-copy" id="result-subtitle">최근 저장된 개찰 결과를 불러오는 중입니다.</p>
+      </section>
+
+      <section class="panel result-panel">
+        <div class="watch-actions result-actions">
+          <a class="detail-link" href="/">대시보드로 돌아가기</a>
+          <a class="detail-link" id="official-link" target="_blank" rel="noreferrer">나라장터 공고 원문 열기</a>
+          <button class="ghost" id="reload-button" type="button">새로고침</button>
+        </div>
+
+        <div class="watch-grid result-grid" id="result-meta"></div>
+
+        <section class="result-section">
+          <h2>요약</h2>
+          <div id="result-summary" class="watch-summary"></div>
+        </section>
+
+        <section class="result-section">
+          <h2>공고 정보</h2>
+          <div id="announcement-grid" class="kv-grid"></div>
+        </section>
+
+        <section class="result-section">
+          <h2>입찰 업체</h2>
+          <div class="table-wrap">
+            <table class="result-table" id="bidder-table">
+              <thead>
+                <tr>
+                  <th>순위</th>
+                  <th>업체명</th>
+                  <th>대표자</th>
+                  <th>입찰금액</th>
+                  <th>투찰률</th>
+                  <th>투찰시각</th>
+                  <th>비고</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="result-section">
+          <h2>결과 스크린샷</h2>
+          <div class="result-image-wrap">
+            <img id="result-image" alt="개찰 결과 스크린샷" />
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <script src="/result.js" type="module"></script>
+  </body>
+</html>

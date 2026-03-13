@@ -1,0 +1,16 @@
+{
+  "name": "narajangteo-result-macro",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Narajangteo result watcher and local dashboard app",
+  "scripts": {
+    "check": "node narajangteo-result-check.js",
+    "watch": "node narajangteo-result-check.js --watch",
+    "app": "node app-server.js",
+    "generate:vapid": "node scripts/generate-vapid.js"
+  },
+  "dependencies": {
+    "playwright": "^1.54.2",
+    "web-push": "^3.6.7"
+  }
+}

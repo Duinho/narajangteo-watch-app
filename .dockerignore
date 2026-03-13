@@ -1,0 +1,6 @@
+node_modules
+output
+app-data
+.git
+.codex-backups
+npm-debug.log

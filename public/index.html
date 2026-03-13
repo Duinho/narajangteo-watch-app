@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0f766e" />
+    <title>나라장터 감시 앱</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="background-grid"></div>
+
+    <section class="lock-panel" id="lock-panel" hidden>
+      <div class="lock-card">
+        <p class="eyebrow">Protected Access</p>
+        <h1>보안코드가 필요합니다.</h1>
+        <p class="hero-copy" id="lock-message"></p>
+        <form id="lock-form" class="stack">
+          <label>
+            <span>보안코드</span>
+            <input name="accessCode" type="password" autocomplete="current-password" required />
+          </label>
+          <button class="primary" type="submit">앱 열기</button>
+        </form>
+      </div>
+    </section>
+
+    <main class="shell" id="app-shell">
+      <section class="hero hero-grid">
+        <div>
+          <p class="eyebrow">Cloud Watch</p>
+          <h1>나라장터 개찰결과를<br />설치형 앱처럼 받습니다.</h1>
+          <p class="hero-copy">
+            공고번호를 등록하면 서버가 주기적으로 개찰결과를 확인하고, 선정업체가 확인되는 순간 이 기기로 푸시를 보냅니다.
+          </p>
+        </div>
+
+        <aside class="hero-actions">
+          <button class="primary" id="install-button" type="button">앱 설치</button>
+          <button class="secondary" id="push-button" type="button">푸시 연결</button>
+          <button class="ghost" id="unsubscribe-button" type="button">푸시 해제</button>
+          <button class="ghost" id="test-push-button" type="button">테스트 푸시</button>
+          <button class="ghost" id="refresh-button" type="button">새로고침</button>
+          <p class="hint small" id="push-status">푸시 상태를 확인하는 중입니다.</p>
+        </aside>
+      </section>
+
+      <section class="status-strip">
+        <div class="meta-card">
+          <span class="meta-label">서버 시각</span>
+          <strong id="server-time">-</strong>
+        </div>
+        <div class="meta-card">
+          <span class="meta-label">감시 공고</span>
+          <strong id="watch-count">0건</strong>
+        </div>
+        <div class="meta-card">
+          <span class="meta-label">알림 상태</span>
+          <strong id="summary-status">확인 중</strong>
+        </div>
+      </section>
+
+      <section class="panel two-column">
+        <div class="panel-block">
+          <div class="section-title">새 감시 등록</div>
+          <form id="watch-form" class="stack">
+            <label>
+              <span>표시 이름</span>
+              <input name="label" placeholder="예: 세종 AI센터 제안" />
+            </label>
+            <div class="inline-fields">
+              <label>
+                <span>입찰공고번호</span>
+                <input name="notice" placeholder="R26BK01351984" required />
+              </label>
+              <label class="small">
+                <span>차수</span>
+                <input name="order" value="000" />
+              </label>
+            </div>
+            <label class="small">
+              <span>조회 간격(초)</span>
+              <input name="intervalSeconds" type="number" min="30" value="300" />
+            </label>
+            <button class="primary" type="submit">감시 시작</button>
+          </form>
+        </div>
+
+        <div class="panel-block">
+          <div class="section-title">배포 설정</div>
+          <form id="settings-form" class="stack">
+            <label>
+              <span>공개 주소</span>
+              <input id="public-url" name="publicBaseUrl" placeholder="https://your-app.example.com" />
+            </label>
+            <button class="secondary" type="submit">주소 저장</button>
+          </form>
+          <div class="hint">
+            클라우드에 배포한 뒤 실제 접속 주소를 넣으면 푸시를 눌렀을 때 해당 결과 상세로 바로 이동합니다.
+          </div>
+        </div>
+      </section>
+
+      <section class="watch-list-header">
+        <div class="section-title">감시 목록</div>
+      </section>
+
+      <section id="watch-list" class="watch-list"></section>
+    </main>
+
+    <template id="watch-card-template">
+      <article class="watch-card">
+        <header class="watch-card-header">
+          <div>
+            <p class="watch-label"></p>
+            <h2 class="watch-notice"></h2>
+          </div>
+          <span class="badge"></span>
+        </header>
+
+        <div class="watch-grid">
+          <div class="meta-card">
+            <span class="meta-label">최근 상태</span>
+            <strong class="watch-status">-</strong>
+          </div>
+          <div class="meta-card">
+            <span class="meta-label">다음 조회</span>
+            <strong class="watch-next-run">-</strong>
+          </div>
+          <div class="meta-card">
+            <span class="meta-label">조회 간격</span>
+            <strong class="watch-interval">-</strong>
+          </div>
+        </div>
+
+        <div class="watch-summary"></div>
+        <div class="watch-error"></div>
+
+        <footer class="watch-actions">
+          <a class="ghost detail-link">상세 보기</a>
+          <button class="ghost run-now" type="button">지금 조회</button>
+          <button class="ghost toggle-watch" type="button">중지</button>
+          <button class="danger delete-watch" type="button">삭제</button>
+        </footer>
+      </article>
+    </template>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>
