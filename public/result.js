@@ -1,4 +1,13 @@
-import { ApiError, formatDate, formatInterval, getAccessCode, loadConfig, request, setAccessCode } from "/common.js";
+import {
+  ApiError,
+  ensureWorkspaceKey,
+  formatDate,
+  formatInterval,
+  getAccessCode,
+  loadConfig,
+  request,
+  setAccessCode,
+} from "/common.js";
 
 const lockPanel = document.querySelector("#lock-panel");
 const lockForm = document.querySelector("#lock-form");
@@ -117,6 +126,7 @@ async function loadResult() {
 }
 
 async function boot() {
+  ensureWorkspaceKey();
   const config = await loadConfig();
 
   if (config.authRequired && !getAccessCode()) {

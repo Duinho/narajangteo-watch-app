@@ -1,4 +1,4 @@
-const CACHE_NAME = "narajangteo-watch-v2";
+const CACHE_NAME = "narajangteo-watch-v3";
 const CORE_ASSETS = [
   "/",
   "/index.html",
@@ -30,6 +30,25 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(request.url);
 
   if (request.method !== "GET" || url.origin !== self.location.origin || url.pathname.startsWith("/api/")) {
+    return;
+  }
+
+  const isAppShellAsset =
+    request.mode === "navigate" ||
+    ["/", "/index.html", "/result.html", "/styles.css", "/common.js", "/app.js", "/result.js", "/manifest.webmanifest"].includes(
+      url.pathname
+    );
+
+  if (isAppShellAsset) {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+          return response;
+        })
+        .catch(() => caches.match(request).then((cached) => cached || caches.match("/index.html")))
+    );
     return;
   }
 
