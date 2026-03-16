@@ -664,7 +664,7 @@ async function runWatch(workspaceKey, watchId, reason, force) {
   try {
     const { stdout, stderr } = await execFileAsync(process.execPath, args, {
       cwd: ROOT_DIR,
-      timeout: 120000,
+      timeout: 90000,
       windowsHide: true,
       maxBuffer: 1024 * 1024,
     });

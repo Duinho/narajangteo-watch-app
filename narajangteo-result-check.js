@@ -5,12 +5,14 @@ const { chromium } = require("playwright");
 const DEFAULT_NOTICE = "R26BK01351984";
 const DEFAULT_ORDER = "000";
 const DEFAULT_INTERVAL_SECONDS = 300;
-const DEFAULT_TIMEOUT_MS = 45000;
+const DEFAULT_TIMEOUT_MS = 30000;
 const DEFAULT_OUTPUT_DIR = path.join(process.cwd(), "output", "results");
 const DEFAULT_STATE_DIR = path.join(process.cwd(), "output", "state");
 const G2B_MENU_URL = "https://www.g2b.go.kr/link/PNPE027_01/single/";
 const DEFAULT_USER_AGENT =
   "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36";
+const ENTRY_NAVIGATION_TIMEOUT_MS = 12000;
+const ENTRY_ATTEMPTS = 2;
 
 function parseArgs(argv) {
   const parsed = {
@@ -314,15 +316,16 @@ async function configurePage(page, timeoutMs) {
 
 async function openEntryPageStable(context, notice, order, timeoutMs) {
   let lastError = null;
+  const navigationTimeout = Math.min(timeoutMs, ENTRY_NAVIGATION_TIMEOUT_MS);
 
-  for (let attempt = 1; attempt <= 4; attempt += 1) {
+  for (let attempt = 1; attempt <= ENTRY_ATTEMPTS; attempt += 1) {
     for (const targetUrl of buildEntryUrls(notice, order)) {
       const page = await context.newPage();
       await configurePage(page, timeoutMs);
 
       try {
         await page.goto(targetUrl, {
-          timeout: timeoutMs,
+          timeout: navigationTimeout,
           waitUntil: "domcontentloaded",
         });
         await page.waitForSelector("select", { timeout: timeoutMs });
@@ -337,7 +340,7 @@ async function openEntryPageStable(context, notice, order, timeoutMs) {
       break;
     }
 
-    await sleep(Math.min(1500 * attempt, 5000));
+    await sleep(Math.min(1000 * attempt, 2500));
   }
 
   throw new Error(`나라장터 진입 실패: ${describeError(lastError)}`);
