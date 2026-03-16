@@ -872,6 +872,7 @@ function findAnnouncementEntry(announcement, patterns) {
 
     if (patterns.some((pattern) => pattern.test(sourceLabel))) {
       return {
+        key,
         sourceLabel,
         value: normalizedValue,
       };
@@ -883,6 +884,55 @@ function findAnnouncementEntry(announcement, patterns) {
 
 function getAnnouncementValue(announcement, patterns) {
   return findAnnouncementEntry(announcement, patterns)?.value || "";
+}
+
+function upsertAnnouncementValue(announcement, patterns, fallbackKey, value) {
+  const normalizedValue = normalizePlainText(value);
+  if (!normalizedValue) {
+    return announcement || {};
+  }
+
+  const nextAnnouncement = {
+    ...(announcement || {}),
+  };
+  const existing = findAnnouncementEntry(nextAnnouncement, patterns);
+  nextAnnouncement[existing?.key || fallbackKey] = normalizedValue;
+  return nextAnnouncement;
+}
+
+function normalizeAnnouncementForDisplay(announcement, searchRow) {
+  let nextAnnouncement = {
+    ...(announcement || {}),
+  };
+
+  if (searchRow?.title) {
+    nextAnnouncement = upsertAnnouncementValue(
+      nextAnnouncement,
+      [/\uC785\uCC30\uACF5\uACE0\uBA85/, /\uACF5\uACE0\uBA85/],
+      "\uACF5\uACE0\uBA85",
+      searchRow.title
+    );
+  }
+
+  if (searchRow?.demandOrg) {
+    nextAnnouncement = upsertAnnouncementValue(
+      nextAnnouncement,
+      [/\uC218\uC694\uAE30\uAD00/, /\uACF5\uACE0\uAE30\uAD00/],
+      "\uC218\uC694\uAE30\uAD00",
+      searchRow.demandOrg
+    );
+  }
+
+  if (searchRow?.plannedOpenAt) {
+    nextAnnouncement = upsertAnnouncementValue(
+      nextAnnouncement,
+      [/\uAC1C\uCC30\uC77C\uC2DC/, /\uC2E4\uC81C\uAC1C\uCC30\uC77C\uC2DC/, /\uAC8C\uC2DC\uC77C\uC2DC/],
+      "\uAC1C\uCC30\uC77C\uC2DC",
+      searchRow.plannedOpenAt
+    );
+  }
+
+  return nextAnnouncement;
 }
 
 function getPageTextMatch(pageText, pattern) {
@@ -921,9 +971,9 @@ function buildFallbackSearchRow(notice, order, noticeOverview, status) {
   };
 }
 
-function buildFallbackDetail(noticeOverview) {
+function buildFallbackDetail(noticeOverview, searchRow = null) {
   return {
-    announcement: noticeOverview?.announcement || {},
+    announcement: normalizeAnnouncementForDisplay(noticeOverview?.announcement || {}, searchRow),
     bidders: [],
     topBidder: null,
     selectedCompany: null,
@@ -1283,13 +1333,19 @@ async function runOnce(browser, options) {
     }).replace(" ", "T");
 
     if (await page.getByText("데이터가 없음").isVisible()) {
+      const fallbackRow = buildFallbackSearchRow(
+        options.notice,
+        options.order,
+        noticeOverview,
+        "개찰결과 미공개"
+      );
       const payload = {
         checkedAt,
         notice: options.notice,
         order: options.order,
         state: "NOT_PUBLISHED",
-        searchRow: buildFallbackSearchRow(options.notice, options.order, noticeOverview, "개찰결과 미공개"),
-        detail: buildFallbackDetail(noticeOverview),
+        searchRow: fallbackRow,
+        detail: buildFallbackDetail(noticeOverview, fallbackRow),
       };
       const files = await writeOutputs(
         options.outputDir,
@@ -1304,13 +1360,19 @@ async function runOnce(browser, options) {
     const matchingRow = await findMatchingRowStable(page, options.notice, options.order);
 
     if (!matchingRow) {
+      const fallbackRow = buildFallbackSearchRow(
+        options.notice,
+        options.order,
+        noticeOverview,
+        "검색 목록 미노출"
+      );
       const payload = {
         checkedAt,
         notice: options.notice,
         order: options.order,
         state: "NOT_FOUND_IN_CURRENT_FILTER",
-        searchRow: buildFallbackSearchRow(options.notice, options.order, noticeOverview, "검색 목록 미노출"),
-        detail: buildFallbackDetail(noticeOverview),
+        searchRow: fallbackRow,
+        detail: buildFallbackDetail(noticeOverview, fallbackRow),
       };
       const files = await writeOutputs(
         options.outputDir,
@@ -1324,10 +1386,13 @@ async function runOnce(browser, options) {
 
     await openResultDetailStable(page, matchingRow.rowIndex, options.timeoutMs);
     const detail = await extractDetailStable(page);
-    detail.announcement = {
-      ...(noticeOverview?.announcement || {}),
-      ...(detail.announcement || {}),
-    };
+    detail.announcement = normalizeAnnouncementForDisplay(
+      {
+        ...(noticeOverview?.announcement || {}),
+        ...(detail.announcement || {}),
+      },
+      matchingRow
+    );
     const payload = {
       checkedAt,
       notice: options.notice,

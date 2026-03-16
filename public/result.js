@@ -42,8 +42,23 @@ function renderMeta(rows) {
     .join("");
 }
 
-function renderAnnouncement(announcement) {
-  const entries = Object.entries(announcement || {});
+function normalizeAnnouncement(announcement, payload) {
+  const normalized = {
+    ...(announcement || {}),
+  };
+  const title = String(payload?.searchRow?.title || "").trim();
+
+  if (!title) {
+    return normalized;
+  }
+
+  const titleKey = Object.keys(normalized).find((key) => /(입찰공고명|공고명)/.test(String(key)));
+  normalized[titleKey || "공고명"] = title;
+  return normalized;
+}
+
+function renderAnnouncement(announcement, payload) {
+  const entries = Object.entries(normalizeAnnouncement(announcement, payload));
   if (!entries.length) {
     announcementGrid.innerHTML = `<p class="summary-sub">공고 상세 정보가 아직 없습니다.</p>`;
     return;
@@ -158,7 +173,7 @@ async function boot() {
     ]);
 
     renderSummary(payload);
-    renderAnnouncement(payload?.detail?.announcement || {});
+    renderAnnouncement(payload?.detail?.announcement || {}, payload);
     renderBidders(payload?.detail?.bidders || []);
   } catch (error) {
     if (error instanceof ApiError && error.status === 401) {
