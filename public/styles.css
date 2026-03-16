@@ -239,6 +239,32 @@ button:disabled {
   padding: 18px;
 }
 
+.notice-panel {
+  margin: 0 0 18px;
+  padding: 18px 20px;
+  border: 1px solid rgba(15, 118, 110, 0.16);
+  border-radius: 22px;
+  background: rgba(15, 118, 110, 0.08);
+  box-shadow: var(--shadow);
+}
+
+.notice-title {
+  margin: 0 0 8px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.notice-line {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.65;
+}
+
+.notice-line + .notice-line {
+  margin-top: 6px;
+}
+
 .meta-card {
   padding: 14px 16px;
   border-radius: 18px;
