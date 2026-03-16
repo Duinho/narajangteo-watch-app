@@ -19,6 +19,7 @@ const VAPID_FILE = path.join(APP_DATA_DIR, "webpush-vapid.json");
 const RESULTS_DIR = path.join(ROOT_DIR, "output", "results");
 const NOTIFY_STATE_DIR = path.join(ROOT_DIR, "output", "state");
 const CHECKER_PATH = path.join(ROOT_DIR, "narajangteo-result-check.js");
+const CHECKER_TIMEOUT_MS = Number.parseInt(process.env.CHECKER_TIMEOUT_MS || "180000", 10);
 const ACCESS_CODE = String(process.env.APP_ACCESS_CODE || "").trim();
 const VAPID_SUBJECT = String(process.env.VAPID_SUBJECT || "mailto:noreply@example.com").trim();
 const DEFAULT_PUBLIC_BASE_URL = trimTrailingSlash(process.env.APP_BASE_URL || "");
@@ -667,7 +668,7 @@ async function runWatch(workspaceKey, watchId, reason, force) {
   try {
     const { stdout, stderr } = await execFileAsync(process.execPath, args, {
       cwd: ROOT_DIR,
-      timeout: 90000,
+      timeout: CHECKER_TIMEOUT_MS,
       windowsHide: true,
       maxBuffer: 1024 * 1024,
     });
@@ -699,7 +700,13 @@ async function runWatch(workspaceKey, watchId, reason, force) {
     }
   } catch (error) {
     watch.lastRunEndedAt = isoNow();
-    watch.lastError = error.stderr || error.stdout || error.message || "unknown error";
+    const timedOut =
+      error?.code === "ETIMEDOUT" ||
+      error?.signal === "SIGTERM" ||
+      /Command failed:/i.test(String(error?.message || "")) && !String(error?.stderr || "").trim();
+    watch.lastError = timedOut
+      ? `조회 제한시간 초과 (${Math.round(CHECKER_TIMEOUT_MS / 1000)}초). Render Free 첫 실행 지연일 수 있습니다.`
+      : error.stderr || error.stdout || error.message || "unknown error";
     watch.nextRunAt = new Date(Date.now() + watch.intervalSeconds * 1000).toISOString();
     watch.updatedAt = isoNow();
     workspace.updatedAt = isoNow();
