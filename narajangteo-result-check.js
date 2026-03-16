@@ -361,7 +361,32 @@ async function openResultSearchStable(page, timeoutMs) {
   await page.waitForSelector('input[title="입찰공고번호"]', { timeout: timeoutMs });
 }
 
-async function clickSearchButtonStable(page) {
+async function waitForBlockingModalToClear(page, timeoutMs) {
+  try {
+    await page.waitForFunction(
+      () => {
+        const modal = document.querySelector("#_modal");
+        if (!modal) {
+          return true;
+        }
+
+        const style = window.getComputedStyle(modal);
+        return (
+          style.display === "none" ||
+          style.visibility === "hidden" ||
+          style.pointerEvents === "none" ||
+          Number.parseFloat(style.opacity || "1") === 0
+        );
+      },
+      { timeout: Math.min(timeoutMs, 5000) }
+    );
+  } catch (error) {
+    // Ignore timeout. Some pages keep the modal node mounted.
+  }
+}
+
+async function clickSearchButtonStable(page, timeoutMs = 5000) {
+  await waitForBlockingModalToClear(page, timeoutMs);
   const selectors = [
     "#mf_wfm_container_btnS0001",
     'input[type="button"][value="검색"]',
@@ -372,7 +397,18 @@ async function clickSearchButtonStable(page) {
   for (const selector of selectors) {
     const locator = page.locator(selector).first();
     if ((await locator.count()) > 0) {
-      await locator.click();
+      try {
+        await locator.click({ timeout: 5000 });
+      } catch (error) {
+        await page.evaluate((targetSelector) => {
+          const button = document.querySelector(targetSelector);
+          if (!button) {
+            throw new Error(`search button not found for selector: ${targetSelector}`);
+          }
+
+          button.click();
+        }, selector);
+      }
       return;
     }
   }
@@ -401,7 +437,7 @@ async function searchNoticeStable(page, notice, order, timeoutMs) {
 
   await bidInputs.nth(0).fill(notice);
   await bidInputs.nth(1).fill(order);
-  await clickSearchButtonStable(page);
+  await clickSearchButtonStable(page, timeoutMs);
 
   await page.waitForFunction(
     () => {
@@ -449,7 +485,7 @@ async function searchNoticeStableV2(page, notice, order, timeoutMs) {
 
   await page.locator(`#${inputIds[0]}`).fill(notice);
   await page.locator(`#${inputIds[1]}`).fill(order);
-  await clickSearchButtonStable(page);
+  await clickSearchButtonStable(page, timeoutMs);
 
   await page.waitForFunction(
     () => {
@@ -636,6 +672,129 @@ async function extractDetailStable(page) {
   };
 }
 
+async function extractNoticeOverviewStable(page) {
+  return page.evaluate(() => {
+    const clean = (value) => String(value || "").replace(/\s+/g, " ").trim();
+    const pageText = clean(document.body.innerText);
+
+    const findTable = (requiredLabels) =>
+      Array.from(document.querySelectorAll("table"))
+        .filter((table) => {
+          const labels = Array.from(table.querySelectorAll("th")).map((cell) => clean(cell.innerText));
+          return requiredLabels.every((label) => labels.includes(label));
+        })
+        .sort((left, right) => clean(left.innerText).length - clean(right.innerText).length)[0] || null;
+
+    const readPairs = (table) => {
+      const pairs = {};
+      if (!table) {
+        return pairs;
+      }
+
+      for (const row of Array.from(table.querySelectorAll("tr"))) {
+        const cells = Array.from(row.children).map((cell) => ({
+          tag: cell.tagName,
+          text: clean(cell.innerText),
+        }));
+
+        for (let index = 0; index < cells.length - 1; index += 1) {
+          const current = cells[index];
+          const next = cells[index + 1];
+          if (current.tag !== "TH" || next.tag !== "TD") {
+            continue;
+          }
+
+          const key = current.text;
+          const value = next.text;
+          if (!key || !value || pairs[key]) {
+            continue;
+          }
+
+          pairs[key] = value;
+        }
+      }
+
+      return pairs;
+    };
+
+    const basicTable = findTable(["입찰공고번호", "공고명"]);
+    const agencyTable = findTable(["공고기관", "수요기관"]);
+    const announcement = {
+      ...readPairs(basicTable),
+      ...readPairs(agencyTable),
+    };
+
+    if (!announcement["공고명"]) {
+      const titleMatch = pageText.match(/공고명\s+(.+?)\s+(공고기관|수요기관|집행관|담당자|입찰진행정보)/);
+      if (titleMatch?.[1]) {
+        announcement["공고명"] = clean(titleMatch[1]);
+      }
+    }
+
+    if (!announcement["입찰공고번호"]) {
+      const noticeMatch = pageText.match(/입찰공고번호\s+([A-Z0-9-]+)/);
+      if (noticeMatch?.[1]) {
+        announcement["입찰공고번호"] = clean(noticeMatch[1]);
+      }
+    }
+
+    if (!announcement["참조번호"]) {
+      const refMatch = pageText.match(/참조번호\s+(.+?)\s+(실제개찰일시|공고명|공고기관|수요기관)/);
+      if (refMatch?.[1]) {
+        announcement["참조번호"] = clean(refMatch[1]);
+      }
+    }
+
+    if (!announcement["개찰일시"]) {
+      const openMatch = pageText.match(/개찰\s+(\d{4}\/\d{2}\/\d{2}\s+\d{2}:\d{2}:\d{2})/);
+      if (openMatch?.[1]) {
+        announcement["개찰일시"] = clean(openMatch[1]);
+      }
+    }
+
+    return { announcement, pageText };
+  });
+}
+
+async function loadNoticeOverviewStable(context, notice, order, timeoutMs) {
+  const page = await context.newPage();
+  await configurePage(page, timeoutMs);
+
+  try {
+    await page.goto(buildDirectUrl(notice, order), {
+      timeout: Math.max(15000, Math.min(timeoutMs, 25000)),
+      waitUntil: "domcontentloaded",
+    });
+
+    await page.waitForFunction(
+      () =>
+        Array.from(document.querySelectorAll("table")).some((table) => {
+          const rows = Array.from(table.querySelectorAll("tr"));
+          const labels = Array.from(table.querySelectorAll("th")).map((cell) =>
+            (cell.innerText || "").replace(/\s+/g, " ").trim()
+          );
+          const titleRow = rows.find((row) => {
+            const cells = Array.from(row.children);
+            const label = (cells[0]?.innerText || "").replace(/\s+/g, " ").trim();
+            const value = (cells[1]?.innerText || "").replace(/\s+/g, " ").trim();
+            return label === "공고명" && Boolean(value);
+          });
+          return labels.includes("입찰공고번호") && Boolean(titleRow);
+        }),
+      { timeout: Math.min(timeoutMs, 12000) }
+    );
+
+    return await extractNoticeOverviewStable(page);
+  } catch (error) {
+    return {
+      announcement: {},
+      pageText: "",
+    };
+  } finally {
+    await page.close().catch(() => {});
+  }
+}
+
 async function extractLabeledTable(page, headingText) {
   return page.evaluate((targetHeading) => {
     const headings = Array.from(document.querySelectorAll("h4"));
@@ -720,6 +879,56 @@ function findAnnouncementEntry(announcement, patterns) {
   }
 
   return null;
+}
+
+function getAnnouncementValue(announcement, patterns) {
+  return findAnnouncementEntry(announcement, patterns)?.value || "";
+}
+
+function getPageTextMatch(pageText, pattern) {
+  const match = String(pageText || "").match(pattern);
+  return match?.[1]?.trim() || "";
+}
+
+function buildFallbackSearchRow(notice, order, noticeOverview, status) {
+  const announcement = noticeOverview?.announcement || {};
+  const pageText = noticeOverview?.pageText || "";
+  const titleFromText = getPageTextMatch(
+    pageText,
+    /공고명\s+(.+?)\s+(검사|검수|입찰방식|공고기관|수요기관|집행관|입찰진행정보)/
+  );
+  const demandOrgFromText = getPageTextMatch(pageText, /공고기관\s+(.+?)\s+수요기관/);
+  const openAtFromText = getPageTextMatch(
+    pageText,
+    /(?:실제개찰일시|개찰일시|개찰)\s+(\d{4}\/\d{2}\/\d{2}\s+\d{2}:\d{2}(?::\d{2})?)/
+  );
+
+  return {
+    rowIndex: -1,
+    number: "",
+    noticeCombined: `${notice}-${order}`,
+    order,
+    bidType: "",
+    title: titleFromText || getAnnouncementValue(announcement, [/\uC785\uCC30\uACF5\uACE0\uBA85/, /\uACF5\uACE0\uBA85/]),
+    demandOrg:
+      demandOrgFromText || getAnnouncementValue(announcement, [/\uC218\uC694\uAE30\uAD00/, /\uACF5\uACE0\uAE30\uAD00/]),
+    plannedOpenAt: openAtFromText || getAnnouncementValue(announcement, [
+      /\uAC1C\uCC30\uC77C\uC2DC/,
+      /\uC2E4\uC81C\uAC1C\uCC30\uC77C\uC2DC/,
+      /\uAC8C\uC2DC\uC77C\uC2DC/,
+    ]),
+    status,
+  };
+}
+
+function buildFallbackDetail(noticeOverview) {
+  return {
+    announcement: noticeOverview?.announcement || {},
+    bidders: [],
+    topBidder: null,
+    selectedCompany: null,
+    pageText: noticeOverview?.pageText || "",
+  };
 }
 
 function findBidderByNote(bidders, patterns) {
@@ -1056,6 +1265,7 @@ async function runOnce(browser, options) {
   let page = null;
 
   try {
+    const noticeOverview = await loadNoticeOverviewStable(context, options.notice, options.order, options.timeoutMs);
     page = await openEntryPageStable(context, options.notice, options.order, options.timeoutMs);
     await openResultSearchStable(page, options.timeoutMs);
     await searchNoticeStableV2(page, options.notice, options.order, options.timeoutMs);
@@ -1078,8 +1288,8 @@ async function runOnce(browser, options) {
         notice: options.notice,
         order: options.order,
         state: "NOT_PUBLISHED",
-        searchRow: null,
-        detail: null,
+        searchRow: buildFallbackSearchRow(options.notice, options.order, noticeOverview, "개찰결과 미공개"),
+        detail: buildFallbackDetail(noticeOverview),
       };
       const files = await writeOutputs(
         options.outputDir,
@@ -1099,8 +1309,8 @@ async function runOnce(browser, options) {
         notice: options.notice,
         order: options.order,
         state: "NOT_FOUND_IN_CURRENT_FILTER",
-        searchRow: null,
-        detail: null,
+        searchRow: buildFallbackSearchRow(options.notice, options.order, noticeOverview, "검색 목록 미노출"),
+        detail: buildFallbackDetail(noticeOverview),
       };
       const files = await writeOutputs(
         options.outputDir,
@@ -1114,6 +1324,10 @@ async function runOnce(browser, options) {
 
     await openResultDetailStable(page, matchingRow.rowIndex, options.timeoutMs);
     const detail = await extractDetailStable(page);
+    detail.announcement = {
+      ...(noticeOverview?.announcement || {}),
+      ...(detail.announcement || {}),
+    };
     const payload = {
       checkedAt,
       notice: options.notice,

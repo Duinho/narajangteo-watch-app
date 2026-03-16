@@ -132,11 +132,14 @@ function summarizePayload(payload) {
     return null;
   }
 
+  const announcement = payload.detail?.announcement || {};
+  const fallbackTitle = announcement["공고명"] || announcement["입찰공고명"] || null;
+
   return {
     checkedAt: payload.checkedAt || null,
     state: payload.state || null,
     status: payload.searchRow?.status || null,
-    title: payload.searchRow?.title || null,
+    title: payload.searchRow?.title || fallbackTitle,
     plannedOpenAt: payload.searchRow?.plannedOpenAt || null,
     selectedCompany: payload.detail?.selectedCompany || null,
     topBidder: payload.detail?.topBidder || null,
@@ -683,6 +686,11 @@ async function runWatch(workspaceKey, watchId, reason, force) {
     watch.lastError = "";
     watch.resultJsonPath = scopedPath;
     watch.nextRunAt = new Date(Date.now() + watch.intervalSeconds * 1000).toISOString();
+    if (String(payload?.searchRow?.status || "").includes("개찰완료")) {
+      watch.enabled = false;
+      watch.nextRunAt = null;
+      watch.lastStdout = `${watch.lastStdout}\nauto-stopped: completed-result`.trim();
+    }
     watch.updatedAt = isoNow();
     workspace.updatedAt = isoNow();
 
