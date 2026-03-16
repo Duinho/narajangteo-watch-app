@@ -1,0 +1,24 @@
+name: Render Keepalive
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: render-keepalive
+  cancel-in-progress: true
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Render health endpoint
+        env:
+          RENDER_HEALTH_URL: ${{ vars.RENDER_HEALTH_URL }}
+          DEFAULT_HEALTH_URL: https://narajangteo-watch-app.onrender.com/api/health
+        run: |
+          set -euo pipefail
+          APP_HEALTH_URL="${RENDER_HEALTH_URL:-$DEFAULT_HEALTH_URL}"
+          echo "Pinging ${APP_HEALTH_URL}"
+          curl --fail --show-error --silent --location --max-time 60 "$APP_HEALTH_URL"
