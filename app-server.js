@@ -718,6 +718,31 @@ async function tick() {
   }
 }
 
+async function scheduleImmediateRefreshOnStart() {
+  let changed = false;
+
+  for (const workspace of Object.values(state.workspaces)) {
+    for (const watch of workspace.watches) {
+      if (!watch.enabled) {
+        continue;
+      }
+
+      watch.running = false;
+      watch.nextRunAt = new Date().toISOString();
+      watch.updatedAt = isoNow();
+      changed = true;
+    }
+
+    if (workspace.watches.length > 0) {
+      workspace.updatedAt = isoNow();
+    }
+  }
+
+  if (changed) {
+    await saveState();
+  }
+}
+
 async function handleApi(req, res, url) {
   if (req.method === "GET" && url.pathname === "/api/health") {
     sendJson(res, 200, {
@@ -970,6 +995,7 @@ async function start() {
   await ensureDir(NOTIFY_STATE_DIR);
   await loadState();
   await ensureVapidConfig();
+  await scheduleImmediateRefreshOnStart();
 
   const server = http.createServer(async (req, res) => {
     try {
@@ -1003,6 +1029,8 @@ async function start() {
   setInterval(() => {
     tick().catch((error) => console.error("[tick]", error));
   }, 5000);
+
+  tick().catch((error) => console.error("[startup-tick]", error));
 }
 
 start().catch((error) => {
