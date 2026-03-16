@@ -1,0 +1,4 @@
+your-domain.example.com {
+  encode gzip zstd
+  reverse_proxy app:3838
+}

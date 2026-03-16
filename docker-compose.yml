@@ -1,0 +1,40 @@
+services:
+  app:
+    build:
+      context: .
+    container_name: narajangteo-watch-app
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      PORT: 3838
+    expose:
+      - "3838"
+    volumes:
+      - ./app-data:/app/app-data
+      - ./output:/app/output
+    networks:
+      - web
+
+  caddy:
+    image: caddy:2
+    container_name: narajangteo-caddy
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - web
+
+networks:
+  web:
+
+volumes:
+  caddy_data:
+  caddy_config:
